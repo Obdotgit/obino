@@ -1,10 +1,19 @@
+/*
+ * Copyright (c) 2026 Obdotgit
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * https://eclipse.org.
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ */
 #include "include/codegen.h"
 #include "include/error.h"
 #include "include/lexer.h"
 #include "include/parser.h"
+#include <cstdio>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
+#include <string>
 namespace
 {
     std::string shell_quote(const std::string& value)
@@ -101,22 +110,32 @@ int main(int argc, char** argv)
     }
     Core core;
     const std::string generated = generate(core, std::move(program));
-    const std::filesystem::path temporarySource = std::filesystem::temp_directory_path() / "obino-generated.cpp";
-    std::ofstream sourceFile(temporarySource, std::ios::binary);
+    char temporarySource[L_tmpnam];
+    if (!std::tmpnam(temporarySource))
+    {
+        std::fprintf(stderr, "Could not create temporary generated source path.\n");
+        return 1;
+    }
+    const std::string temporarySourcePath = std::string(temporarySource) + ".cpp";
+    const std::string generatedSource = core.get_result() + "\n" + generated + "int main(){_obn_main();return 0;}";
+    std::FILE* const sourceFile = std::fopen(temporarySourcePath.c_str(), "wbx");
     if (!sourceFile)
     {
         std::fprintf(stderr, "Could not create temporary generated source file.\n");
         return 1;
     }
-    std::printf(generated.c_str());
-    sourceFile << core.get_result() << "\nint main(){";
-    sourceFile << generated;
-    sourceFile << "return 0;}\n";
-    sourceFile.close();
-    const std::string command = compiler_command() + " -std=c++20 -O2 -o " + shell_quote(outputPath) + " " + shell_quote(temporarySource.string());
+    const std::size_t bytesWritten = std::fwrite(generatedSource.data(), 1, generatedSource.size(), sourceFile);
+    const int closeResult = std::fclose(sourceFile);
+    if (bytesWritten != generatedSource.size() || closeResult != 0)
+    {
+        std::fprintf(stderr, "Could not write temporary generated source file.\n");
+        std::remove(temporarySourcePath.c_str());
+        return 1;
+    }
+    std::fwrite(generatedSource.data(), 1, generatedSource.size(), stdout);
+    const std::string command = compiler_command() + " -std=c++20 -Os -o " + shell_quote(outputPath) + " " + shell_quote(temporarySourcePath);
     const int result = std::system(command.c_str());
-    std::error_code cleanupError;
-    std::filesystem::remove(temporarySource, cleanupError);
+    std::remove(temporarySourcePath.c_str());
     if (result != 0)
     {
         std::fprintf(stderr, "Compilation failed.\n");

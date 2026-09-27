@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2026 Obdotgit
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * https://eclipse.org.
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ */
 #ifndef PARSER_H
     #define PARSER_H
     #include "lexer.h"
@@ -38,12 +47,25 @@
         SymbolExpr(std::string value) : value(std::move(value))
         {}
     };
+    struct BooleanExpr : Expr
+    {
+        bool value;
+        BooleanExpr(bool value) : value(value)
+        {}
+    };
     struct BinaryExpr : Expr
     {
         std::unique_ptr<Expr> left;
         std::uint8_t op;
         std::unique_ptr<Expr> right;
         BinaryExpr(std::unique_ptr<Expr> left, std::uint8_t op, std::unique_ptr<Expr> right) : left(std::move(left)), op(std::move(op)), right(std::move(right))
+        {}
+    };
+    struct CallExpr : Expr
+    {
+        std::string name;
+        std::vector<std::unique_ptr<Expr>> args;
+        CallExpr(std::string name, std::vector<std::unique_ptr<Expr>> args) : name(name), args(std::move(args))
         {}
     };
     struct BlockStmt : Stmt
@@ -74,6 +96,22 @@
         VarDeclarationStmt(bool constant, std::string identifier, std::unique_ptr<TypeStmt> type, std::unique_ptr<Expr> value) : constant(constant), identifier(identifier), type(std::move(type)), value(std::move(value))
         {}
     };
+    struct FuncDeclarationStmt : Stmt
+    {
+        std::string identifier;
+        std::unique_ptr<TypeStmt> type;
+        std::vector<std::string> generics;
+        std::vector<std::pair<std::unique_ptr<TypeStmt>, std::string>> args;
+        std::unique_ptr<BlockStmt> block;
+        FuncDeclarationStmt(std::string identifier, std::unique_ptr<TypeStmt> type, std::vector<std::string> generics, std::vector<std::pair<std::unique_ptr<TypeStmt>, std::string>> args, std::unique_ptr<BlockStmt> block) : identifier(identifier), type(std::move(type)), args(std::move(args)), block(std::move(block))
+        {}
+    };
+    struct ReturnStmt : Stmt
+    {
+        std::unique_ptr<Expr> value;
+        ReturnStmt(std::unique_ptr<Expr> value) : value(std::move(value))
+        {}
+    };
     class Parser
     {
         private:
@@ -89,11 +127,14 @@
             std::unique_ptr<Stmt> parseStmt();
             std::unique_ptr<TypeStmt> parseTypeStmt();
             std::unique_ptr<VarDeclarationStmt> parseVarDeclarationStmt();
+            std::unique_ptr<FuncDeclarationStmt> parseFuncDeclarationStmt();
+            std::unique_ptr<ReturnStmt> parseReturnStmt();
             std::unique_ptr<Expr> parseExpr();
+            std::unique_ptr<Expr> parsePrimaryExpr();
+            std::unique_ptr<Expr> parseCallExpr();
             std::unique_ptr<Expr> parseExponentialExpr();
             std::unique_ptr<Expr> parseMultiplicativeExpr();
             std::unique_ptr<Expr> parseAdditiveExpr();
-            std::unique_ptr<Expr> parsePrimaryExpr();
             bool isFunctionDeclaration() const;
             Token peek(unsigned n) const;
         public:

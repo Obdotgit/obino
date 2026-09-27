@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2026 Obdotgit
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * https://eclipse.org.
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ */
 #include "include/lexer.h"
 #include "include/error.h"
 const std::uint8_t getKindFromString(const std::string& str)
@@ -7,9 +16,9 @@ const std::uint8_t getKindFromString(const std::string& str)
         {"elseif", TokenKind::tok_elseif},
         {"else", TokenKind::tok_else},
         {"const", TokenKind::tok_const},
-        {"int", TokenKind::tok_int_keyword},
-        {"float", TokenKind::tok_float_keyword},
-        {"string", TokenKind::tok_string_keyword},
+        {"int", TokenKind::tok_predefined_type},
+        {"float", TokenKind::tok_predefined_type},
+        {"string", TokenKind::tok_predefined_type},
         {"for", TokenKind::tok_for},
         {"while", TokenKind::tok_while},
         {"type", TokenKind::tok_type},
@@ -17,7 +26,11 @@ const std::uint8_t getKindFromString(const std::string& str)
         {"private", TokenKind::tok_private},
         {"protected", TokenKind::tok_protected},
         {"where", TokenKind::tok_where},
-        {"return", TokenKind::tok_return}
+        {"return", TokenKind::tok_return},
+        {"void", TokenKind::tok_predefined_type},
+        {"boolean", TokenKind::tok_predefined_type},
+        {"true", TokenKind::tok_true},
+        {"false", TokenKind::tok_false}
     };
     auto it = keywords.find(str);
     if (it != keywords.end())
@@ -79,12 +92,6 @@ std::vector<Token> tokenise(const std::string& src)
     unsigned row = 1;
     unsigned col = 1;
     const std::size_t srcLength = src.length();
-    /*
-    const Token token(const std::uint8_t kind, const std::string value)
-    {
-        return { kind, value };
-    }
-    */
     const auto token = [&row, &col](const std::uint8_t kind, const std::string value) -> Token
     {
         return { kind, value, col, row };

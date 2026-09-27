@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2026 Obdotgit
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * https://eclipse.org.
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ */
 #include "include/parser.h"
 #include "include/error.h"
 Token Parser::peek(unsigned n) const
@@ -17,7 +26,7 @@ bool Parser::isFunctionDeclaration() const
         ++offset;
     }
     const std::uint8_t typeKind = this->peek(offset).kind;
-    if (typeKind != TokenKind::tok_ident && typeKind != TokenKind::tok_int_keyword && typeKind != TokenKind::tok_float_keyword && typeKind != TokenKind::tok_string_keyword)
+    if (typeKind != TokenKind::tok_ident && typeKind != TokenKind::tok_predefined_type)
     {
         return false;
     }
@@ -105,13 +114,39 @@ std::unique_ptr<Expr> Parser::parseExpr()
 // == Prescidence: ==
 // AssignmentExpr
 // MemberExpr
-// FunctionCallExpr
+// CallExpr
 // ComparisonExpr
 // AdditiveExpr
 // MultiplicativeExpr
 // ExponentialExpr
 // UnaryExpr
 // PrimaryExpr
+std::unique_ptr<Expr> Parser::parseCallExpr()
+{
+    const Token tk = this->currentToken();
+    if (tk.kind != TokenKind::tok_ident || this->peek(1).kind != TokenKind::tok_open_paren)
+    {
+        return this->parsePrimaryExpr();
+    }
+    this->advance();
+    const std::string name = tk.value;
+    this->expect(TokenKind::tok_open_paren);
+    std::vector<std::unique_ptr<Expr>> args = {};
+    while (this->currentTokenKind() != TokenKind::tok_closed_paren)
+    {
+        args.push_back(std::move(this->parseExpr()));
+        if (this->currentTokenKind() != TokenKind::tok_closed_paren)
+        {
+            this->expect(TokenKind::tok_comma);
+        }
+    }
+    this->advance();
+    // TODO: add generics
+    return std::make_unique<CallExpr>(CallExpr{
+        name,
+        std::move(args)
+    });
+}
 std::unique_ptr<Expr> Parser::parseExponentialExpr()
 {
     std::unique_ptr<Expr> left = this->parsePrimaryExpr();
@@ -187,11 +222,20 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr()
     switch (tk)
     {
         case TokenKind::tok_ident:
+            if (this->peek(1).kind == TokenKind::tok_open_paren)
+            {
+                return this->parseCallExpr();
+            }
             return std::make_unique<SymbolExpr>(SymbolExpr{this->advance().value});
         case TokenKind::tok_int:
             return std::make_unique<IntegerExpr>(IntegerExpr{std::stoi(this->advance().value)});
         case TokenKind::tok_float:
             return std::make_unique<FloatExpr>(FloatExpr{std::stod(this->advance().value)});
+        case TokenKind::tok_string:
+            return std::make_unique<StringExpr>(StringExpr{this->advance().value});
+        case TokenKind::tok_false:
+        case TokenKind::tok_true:
+            return std::make_unique<BooleanExpr>(BooleanExpr{this->advance().kind - TokenKind::tok_false == 1});
         case TokenKind::tok_open_paren:
         {
             this->advance();
@@ -211,7 +255,7 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr()
 std::unique_ptr<TypeStmt> Parser::parseTypeStmt()
 {
     const Token tk = this->advance();
-    if (tk.kind != TokenKind::tok_int_keyword && tk.kind != TokenKind::tok_float_keyword && tk.kind != TokenKind::tok_string_keyword && tk.kind != TokenKind::tok_ident)
+    if (tk.kind != TokenKind::tok_predefined_type && tk.kind != TokenKind::tok_ident)
     {
         error(1, ErrorType::err_unexpected_token, "Did not expect token \"" + tk.value + "\" in variable definition!", tk.col, tk.row, currentLineSnippet());
     }
@@ -235,7 +279,7 @@ std::unique_ptr<VarDeclarationStmt> Parser::parseVarDeclarationStmt()
     const std::string ident = this->expect(TokenKind::tok_ident).value;
     this->expect(TokenKind::tok_eq);
     std::unique_ptr<Expr> expr = this->parseExpr();
-    if (this->currentTokenKind() != TokenKind::tok_eof)
+    if (this->currentTokenKind() != TokenKind::tok_eof && this->currentTokenKind() != TokenKind::tok_dedent)
     {
         this->expect(TokenKind::tok_newline);
     }
@@ -246,23 +290,112 @@ std::unique_ptr<VarDeclarationStmt> Parser::parseVarDeclarationStmt()
         std::move(expr)
     });
 }
+std::unique_ptr<FuncDeclarationStmt> Parser::parseFuncDeclarationStmt()
+{
+    if (this->currentTokenKind() == TokenKind::tok_const)
+    {
+        error(1, ErrorType::err_unexpected_token, "Functions cannot be made constant!", this->currentToken().col, this->currentToken().row, currentLineSnippet());
+        this->advance();
+    }
+    std::unique_ptr<TypeStmt> type = this->parseTypeStmt();
+    const std::string name = this->expect(TokenKind::tok_ident).value;
+    this->expect(TokenKind::tok_open_paren);
+    std::vector<std::pair<std::unique_ptr<TypeStmt>, std::string>> args = {};
+    while (this->currentTokenKind() != TokenKind::tok_closed_paren)
+    {
+        std::unique_ptr<TypeStmt> argtype = this->parseTypeStmt();
+        const std::string argname = this->expect(TokenKind::tok_ident).value;
+        if (this->currentTokenKind() != TokenKind::tok_closed_paren)
+        {
+            this->expect(TokenKind::tok_comma);
+        }
+        args.push_back(std::make_pair(std::move(argtype), argname));
+    }
+    this->advance();
+    // TODO: add generics
+    if (this->currentTokenKind() == TokenKind::tok_open_paren)
+    {}
+    if (this->currentTokenKind() != TokenKind::tok_newline)
+    {
+        return std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
+            name,
+            std::move(type),
+            {},
+            std::move(args),
+            std::make_unique<BlockStmt>(BlockStmt{
+                {}
+            })
+        });
+    }
+    this->advance();
+    if (this->currentTokenKind() != TokenKind::tok_indent)
+    {
+        return std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
+            name,
+            std::move(type),
+            {},
+            std::move(args),
+            std::make_unique<BlockStmt>(BlockStmt{
+                {}
+            })
+        });
+    }
+    this->advance();
+    std::unique_ptr<BlockStmt> stmt = std::make_unique<BlockStmt>(BlockStmt{{}});
+    while (this->currentTokenKind() != TokenKind::tok_dedent && this->currentTokenKind() != TokenKind::tok_eof)
+    {
+        std::unique_ptr<Stmt> statement = this->parseStmt();
+        if (!statement)
+        {
+            break;
+        }
+        stmt->body.push_back(std::move(statement));
+    }
+    if (this->currentTokenKind() == TokenKind::tok_dedent)
+    {
+        this->advance();
+    }
+    return std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
+        name,
+        std::move(type),
+        {},
+        std::move(args),
+        std::move(stmt)
+    });
+}
+std::unique_ptr<ReturnStmt> Parser::parseReturnStmt()
+{
+    this->advance();
+    std::unique_ptr<Expr> value;
+    if (this->currentTokenKind() != TokenKind::tok_newline && this->currentTokenKind() != TokenKind::tok_dedent && this->currentTokenKind() != TokenKind::tok_eof)
+    {
+        value = this->parseExpr();
+    }
+    return std::make_unique<ReturnStmt>(ReturnStmt{
+        std::move(value)
+    });
+}
 std::unique_ptr<Stmt> Parser::parseStmt()
 {
     switch (this->currentTokenKind())
     {
         case TokenKind::tok_newline:
+        case TokenKind::tok_indent:
             this->advance();
-            return this->parseStmt();
-        case TokenKind::tok_const:
-        case TokenKind::tok_int_keyword:
-        case TokenKind::tok_float_keyword:
-        case TokenKind::tok_string_keyword:
-            if (this->isFunctionDeclaration())
+            if (this->currentTokenKind() == TokenKind::tok_dedent || this->currentTokenKind() == TokenKind::tok_eof)
             {
-                // to-be function declarations
                 return nullptr;
             }
+            return this->parseStmt();
+        case TokenKind::tok_const:
+        case TokenKind::tok_predefined_type:
+            if (this->isFunctionDeclaration())
+            {
+                return this->parseFuncDeclarationStmt();
+            }
             return this->parseVarDeclarationStmt();
+        case TokenKind::tok_return:
+            return this->parseReturnStmt();
         default:
         {
             std::unique_ptr<Expr> expr = this->parseExpr();
@@ -273,7 +406,6 @@ std::unique_ptr<Stmt> Parser::parseStmt()
             return std::make_unique<ExpressionStmt>(ExpressionStmt{std::move(expr)});
         }
     }
-    return nullptr;
 }
 BlockStmt Parser::parse()
 {

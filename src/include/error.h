@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2026 Obdotgit
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * https://eclipse.org.
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ */
 #ifndef ERROR_H
     #define ERROR_H
     #include <cstdio>
@@ -10,7 +19,8 @@
         err_unknown_character = 100,
         err_invalid_escape,
 
-        err_unexpected_token = 200
+        err_unexpected_token = 200,
+        err_unexpected_indent
     };
     struct ErrorInfo
     {

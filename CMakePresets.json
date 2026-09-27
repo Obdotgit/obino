@@ -1,0 +1,58 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "default-base",
+      "hidden": true,
+      "description": "Base configuration with shared variables",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "windows-msvc",
+      "inherits": "default-base",
+      "displayName": "Windows x64 (MSVC)",
+      "description": "Target Windows using the MSVC compiler",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64"
+    },
+    {
+      "name": "linux-ninja",
+      "inherits": "default-base",
+      "displayName": "Linux (Ninja)",
+      "description": "Target Linux using the Ninja generator",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "generator": "Ninja"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "windows-msvc",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "windows-msvc",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-ninja",
+      "configuration": "Debug"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-ninja",
+      "configuration": "Release"
+    }
+  ]
+}
