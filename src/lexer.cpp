@@ -30,7 +30,8 @@ const std::uint8_t getKindFromString(const std::string& str)
         {"void", TokenKind::tok_predefined_type},
         {"boolean", TokenKind::tok_predefined_type},
         {"true", TokenKind::tok_true},
-        {"false", TokenKind::tok_false}
+        {"false", TokenKind::tok_false},
+        {"import", TokenKind::tok_import}
     };
     auto it = keywords.find(str);
     if (it != keywords.end())
@@ -39,7 +40,7 @@ const std::uint8_t getKindFromString(const std::string& str)
     }
     return TokenKind::tok_ident;
 }
-std::uint32_t hexStringToCodePoint(const std::string& hex_str)
+std::uint32_t hexStringToCodePoint(const std::string& hex_str, const std::string& fileName)
 {
     std::uint32_t code_point = 0;
     const char* begin = hex_str.data();
@@ -47,7 +48,7 @@ std::uint32_t hexStringToCodePoint(const std::string& hex_str)
     auto [ptr, ec] = std::from_chars(begin, end, code_point, 16);
 
     if (ec != std::errc{} || ptr != end) {
-        error(1, ErrorType::err_invalid_escape, "Escape \\u{" + hex_str + "} is invalid hexadecimal!", 1, 1, "\\u{" + hex_str + "}");
+        error(1, ErrorType::err_invalid_escape, "Escape \\u{" + hex_str + "} is invalid hexadecimal!", 1, 1, "\\u{" + hex_str + "}", fileName);
     }
 
     return code_point;
@@ -78,12 +79,12 @@ std::string codePointToUTF8(std::uint32_t cp) {
     }
     return result;
 }
-std::string unicodeFromHexString(const std::string& hex_str)
+std::string unicodeFromHexString(const std::string& hex_str, const std::string& fileName)
 {
-    const std::uint32_t cp = hexStringToCodePoint(hex_str);
+    const std::uint32_t cp = hexStringToCodePoint(hex_str, fileName);
     return codePointToUTF8(cp);
 }
-std::vector<Token> tokenise(const std::string& src)
+std::vector<Token> tokenise(const std::string& src, const std::string& fileName)
 {
     std::vector<Token> tokens = {};
     std::vector<unsigned> indentStack = { 0 };
@@ -102,8 +103,8 @@ std::vector<Token> tokenise(const std::string& src)
         const std::size_t lineEnd = src.find('\n', startPosition) == std::string::npos ? src.size() : src.find('\n', startPosition);
         return src.substr(lineStart, lineEnd - lineStart);
     };
-    const auto fail = [&src, &row, &col, &pos, &currentLineSnippet](const std::uint16_t err_no, const std::string& message) -> void {
-        error(1, err_no, message, col, row, currentLineSnippet(pos));
+    const auto fail = [&src, &row, &col, &pos, &currentLineSnippet, &fileName](const std::uint16_t err_no, const std::string& message) -> void {
+        error(1, err_no, message, col, row, currentLineSnippet(pos), fileName);
     };
     const auto peek = [&pos, &src, srcLength](const std::size_t n = 1) -> std::variant<char, std::nullptr_t>
     {
@@ -567,7 +568,7 @@ std::vector<Token> tokenise(const std::string& src)
                                     {
                                         fail(err_invalid_escape, "Unterminated unicode escape sequence in string literal.");
                                     }
-                                    str += unicodeFromHexString(code);
+                                    str += unicodeFromHexString(code, fileName);
                                     ++pos;
                                     ++col;
                                     break;

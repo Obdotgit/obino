@@ -9,6 +9,22 @@
  */
 #include "include/codegen.h"
 #include "include/error.h"
+#include "include/lexer.h"
+namespace
+{
+    std::string evaluate_import_stmt(Core& core, std::unique_ptr<ImportStmt> stmt);
+    std::filesystem::path normalizedFilePath(const std::filesystem::path& path)
+    {
+        std::error_code errorCode;
+        const std::filesystem::path absolutePath = std::filesystem::absolute(path, errorCode);
+        if (errorCode)
+        {
+            return path.lexically_normal();
+        }
+        const std::filesystem::path canonicalPath = std::filesystem::weakly_canonical(absolutePath, errorCode);
+        return (errorCode ? absolutePath : canonicalPath).lexically_normal();
+    }
+}
 std::string Core::get_result() const
 {
     std::string includes;
@@ -17,7 +33,7 @@ std::string Core::get_result() const
     {
         includes += "#include<" + dependency + ">\n";
     }
-    return includes + this->forward_declarations + this->builtins;
+    return includes + this->imports + this->forward_declarations;
 }
 void req(Core &core, const std::string &dependency)
 {
@@ -96,7 +112,11 @@ std::string evaluate_type_stmt(Core& core, std::unique_ptr<TypeStmt> stmt)
     {
         return "double";
     }
-    return stmt->name;
+    if (stmt->name == "int" || stmt->name == "void")
+    {
+        return stmt->name;
+    }
+    return "_obn_" + stmt->name;
 }
 std::string evaluate_func_decl_stmt(Core& core, std::unique_ptr<FuncDeclarationStmt> stmt)
 {
@@ -112,7 +132,7 @@ std::string evaluate_func_decl_stmt(Core& core, std::unique_ptr<FuncDeclarationS
 }
 std::string evaluate_var_decl_stmt(Core& core, std::unique_ptr<VarDeclarationStmt> stmt)
 {
-    return decl_var(core, stmt->constant, stmt->identifier, evaluate_type_stmt(core, std::move(stmt->type)), evaluate_expr(core, std::move(stmt->value)));
+    return decl_var(core, stmt->constant, "_obn_" + stmt->identifier, evaluate_type_stmt(core, std::move(stmt->type)), evaluate_expr(core, std::move(stmt->value)));
 }
 std::string evaluate_return_stmt(Core& core, std::unique_ptr<ReturnStmt> stmt)
 {
@@ -153,6 +173,11 @@ std::string evaluate_stmt(Core& core, std::unique_ptr<Stmt> stmt)
     {
         stmt.release();
         return evaluate_var_decl_stmt(core, std::unique_ptr<VarDeclarationStmt>(var)) + ";";
+    }
+    else if (auto import = dynamic_cast<ImportStmt*>(stmt.get()))
+    {
+        stmt.release();
+        return evaluate_import_stmt(core, std::unique_ptr<ImportStmt>(import));
     }
     stmt.release();
     return "UNIMPLEMENTED";
@@ -235,7 +260,7 @@ std::string evaluate_call_expr(Core &core, CallExpr *expr)
             args += ",";
         }
     }
-    return get_std(core, expr->name, args);
+    return "(_obn_" + expr->name + "(" + args + "))";
 }
 std::string decl_block(std::vector<std::string> block)
 {
@@ -245,4 +270,89 @@ std::string decl_block(std::vector<std::string> block)
         res += str;
     }
     return res;
+}
+namespace
+{
+    std::string evaluate_import_stmt(Core& core, std::unique_ptr<ImportStmt> stmt)
+    {
+        if (stmt->from.empty())
+        {
+            error(1, ErrorType::err_invalid_import, "Import path cannot be empty!", stmt->column, stmt->line, stmt->snippet, stmt->fileName);
+            return "";
+        }
+        if (stmt->from[0] == '@')
+        {
+            const char* stdPath = std::getenv("OBN_STD_PATH");
+            const std::filesystem::path headerName = stmt->from.substr(1) + ".h";
+            std::filesystem::path filePath = (std::filesystem::path(stdPath ? stdPath : "") / headerName).lexically_normal();
+            std::FILE* file = std::fopen(filePath.string().c_str(), "r");
+            if (file == NULL)
+            {
+                std::filesystem::path sourceDirectory = normalizedFilePath(core.file).parent_path();
+                while (!sourceDirectory.empty())
+                {
+                    const std::filesystem::path fallbackPath = sourceDirectory / "src" / "std" / headerName;
+                    file = std::fopen(fallbackPath.string().c_str(), "r");
+                    if (file != NULL)
+                    {
+                        filePath = fallbackPath;
+                        break;
+                    }
+                    const std::filesystem::path parent = sourceDirectory.parent_path();
+                    if (parent == sourceDirectory)
+                    {
+                        break;
+                    }
+                    sourceDirectory = parent;
+                }
+            }
+            if (file == NULL)
+            {
+                error(1, ErrorType::err_invalid_import, "Tried to import " + stmt->from + "; file does not exist!", stmt->column, stmt->line, stmt->snippet, core.file);
+                return "";
+            }
+            std::fclose(file);
+            core.imports += "#include\"" + filePath.string() + "\"\n";
+            return "";
+        }
+        std::filesystem::path requestedPath(stmt->from);
+        if (requestedPath.extension().empty())
+        {
+            requestedPath += ".obn";
+        }
+        const std::filesystem::path importerPath(stmt->fileName);
+        const std::filesystem::path importedPath = normalizedFilePath(requestedPath.is_absolute() ? requestedPath : importerPath.parent_path() / requestedPath);
+        const std::string importedFile = importedPath.string();
+        const std::string importedKey = importedPath.string();
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> importedSourceFile(std::fopen(importedFile.c_str(), "rb"), &std::fclose);
+        if (!importedSourceFile)
+        {
+            error(1, ErrorType::err_invalid_import, "Tried to import " + stmt->from + "; file does not exist!", stmt->column, stmt->line, stmt->snippet, stmt->fileName);
+            return "";
+        }
+        std::string importedSource;
+        std::array<char, 8192> buffer;
+        std::size_t bytesRead = 0;
+        while ((bytesRead = std::fread(buffer.data(), 1, buffer.size(), importedSourceFile.get())) > 0)
+        {
+            importedSource.append(buffer.data(), bytesRead);
+        }
+        if (std::ferror(importedSourceFile.get()))
+        {
+            error(1, ErrorType::err_invalid_import, "Could not read imported file " + stmt->from + ".", stmt->column, stmt->line, stmt->snippet, stmt->fileName);
+            return "";
+        }
+        const std::vector<Token> tokens = tokenise(importedSource, importedFile);
+        if (has_errors())
+        {
+            return "";
+        }
+        Parser parser(tokens, importedSource, importedFile);
+        BlockStmt block = parser.parse();
+        if (has_errors())
+        {
+            return "";
+        }
+        return generate(core, std::move(block));
+    }
 }

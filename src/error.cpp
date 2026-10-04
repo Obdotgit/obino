@@ -70,7 +70,7 @@ std::string expand_tabs(const std::string& str)
     }
     return result;
 }
-void error(int err_code, std::uint16_t err_no, const std::string& message, unsigned col, unsigned row, const std::string& snippet)
+void error(int err_code, std::uint16_t err_no, const std::string& message, unsigned col, unsigned row, const std::string& snippet, const std::string& fileName)
 {
     global_errors().push_back({
         err_code,
@@ -78,7 +78,8 @@ void error(int err_code, std::uint16_t err_no, const std::string& message, unsig
         message,
         col,
         row,
-        snippet
+        snippet,
+        fileName
     });
 }
 void reset_errors()
@@ -101,7 +102,14 @@ void print_errors()
         const std::size_t caret_col = visual_column(err.snippet, err.col);
         const std::string display_snippet = expand_tabs(err.snippet);
         std::fprintf(stderr, "%s%serror[OBN-%u]%s: %s\n", RED, BOLD, err.err_no, RESET, err.message.c_str());
-        std::fprintf(stderr, "  --> line %u:%u\n", err.row, err.col);
+        if (err.fileName.empty())
+        {
+            std::fprintf(stderr, "  --> line %u:%u\n", err.row, err.col);
+        }
+        else
+        {
+            std::fprintf(stderr, "  --> %s:%u:%u\n", err.fileName.c_str(), err.row, err.col);
+        }
         std::fprintf(stderr, "%*s|\n", static_cast<int>(gutter + 2), "");
         std::fprintf(stderr, " %u | %s\n", err.row, err.snippet.c_str());
         std::fprintf(stderr, "%*s| ", static_cast<int>(gutter + 2), "");

@@ -10,8 +10,13 @@
 #ifndef CODEGEN_H
     #define CODEGEN_H
     #include "parser.h"
+    #include <array>
+    #include <cstdio>
+    #include <cstdlib>
+    #include <filesystem>
     #include <memory>
     #include <string>
+    #include <system_error>
     #include <unordered_set>
     #include <utility>
     #include <vector>
@@ -19,16 +24,14 @@
     {
         std::unordered_set<std::string> dependencies;
         std::string forward_declarations;
-        std::string builtins;
-        std::unordered_set<std::string> builtins_set;
-        bool print_support_emitted = false;
-        Core() : dependencies({}), forward_declarations(""), builtins(""), builtins_set({})
+        std::string imports;
+        const std::string file;
+        Core(std::string file) : dependencies({}), forward_declarations(""), imports(""), file(file)
         {}
         std::string get_result() const;
     };
-    std::string get_std(Core& core, const std::string& name, const std::string& args);
     void req(Core& core, const std::string& dependency);
-    std::string decl_func(Core& core, const std::string& return_type, const std::string& name, const std::vector<std::pair<std::string, std::string>>& args, const std::string& content);
+    std::string decl_func(Core& core, const std::string& return_type, const std::string& name, std::vector<std::pair<std::unique_ptr<TypeStmt>, std::string>> args, const std::string& content);
     std::string decl_ret(const std::string& value);
     std::string decl_add(const std::string& lhs, const std::string& rhs);
     std::string decl_sub(const std::string& lhs, const std::string& rhs);

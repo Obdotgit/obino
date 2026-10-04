@@ -20,7 +20,9 @@
         err_invalid_escape,
 
         err_unexpected_token = 200,
-        err_unexpected_indent
+        err_unexpected_indent,
+
+        err_invalid_import = 300
     };
     struct ErrorInfo
     {
@@ -30,8 +32,9 @@
         unsigned col;
         unsigned row;
         std::string snippet;
+        std::string fileName;
     };
-    void error(int err_code, std::uint16_t err_no, const std::string& message, unsigned col, unsigned row, const std::string& snippet);
+    void error(int err_code, std::uint16_t err_no, const std::string& message, unsigned col, unsigned row, const std::string& snippet, const std::string& fileName = "");
     void reset_errors();
     bool has_errors();
     const std::vector<ErrorInfo>& get_errors();

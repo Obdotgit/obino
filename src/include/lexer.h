@@ -34,7 +34,8 @@
         tok_open_paren, tok_closed_paren,
         tok_open_bracket, tok_closed_bracket,
         tok_comma, tok_dot, tok_colon,
-        tok_true, tok_false
+        tok_true, tok_false,
+        tok_import
     };
     struct Token
     {
@@ -43,5 +44,5 @@
         const unsigned col;
         const unsigned row;
     };
-    std::vector<Token> tokenise(const std::string& src);
+    std::vector<Token> tokenise(const std::string& src, const std::string& fileName = "");
 #endif

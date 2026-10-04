@@ -95,21 +95,26 @@ int main(int argc, char** argv)
     }
     std::fclose(inputFile);
     reset_errors();
-    const auto tokens = tokenise(source);
+    const auto tokens = tokenise(source, argv[1]);
     if (has_errors())
     {
         print_errors();
         return 1;
     }
-    Parser parser(tokens, source);
+    Parser parser(tokens, source, argv[1]);
     BlockStmt program = parser.parse();
     if (has_errors())
     {
         print_errors();
         return 1;
     }
-    Core core;
+    Core core(argv[1]);
     const std::string generated = generate(core, std::move(program));
+    if (has_errors())
+    {
+        print_errors();
+        return 1;
+    }
     char temporarySource[L_tmpnam];
     if (!std::tmpnam(temporarySource))
     {

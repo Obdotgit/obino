@@ -1,2 +1,3 @@
+import "@io"
 void main()
-    println("Hello, World!")
+    println("Your favourite colour is", input("What is your favourite colour? "))

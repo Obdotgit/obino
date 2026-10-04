@@ -15,11 +15,19 @@
     #include <string>
     #include <utility>
     #include <vector>
-    struct Stmt
+    struct AstNode
+    {
+        unsigned line = 0;
+        unsigned column = 0;
+        std::string snippet;
+        std::string fileName;
+        virtual ~AstNode() = default;
+    };
+    struct Stmt : AstNode
     {
         virtual ~Stmt() = default;
     };
-    struct Expr
+    struct Expr : AstNode
     {
         virtual ~Expr() = default;
     };
@@ -96,6 +104,25 @@
         VarDeclarationStmt(bool constant, std::string identifier, std::unique_ptr<TypeStmt> type, std::unique_ptr<Expr> value) : constant(constant), identifier(identifier), type(std::move(type)), value(std::move(value))
         {}
     };
+    enum VarAssignmentKind
+    {
+        equals,
+        plus_equals,
+        minus_equals,
+        star_equals,
+        slash_equals,
+        percent_equals,
+        caret_equals,
+        hash_equals
+    };
+    struct VarAssigmentStmt : Stmt
+    {
+        std::string identifier;
+        std::uint8_t op;
+        std::unique_ptr<Expr> value;
+        VarAssigmentStmt(std::string identifier, std::uint8_t op, std::unique_ptr<Expr> value) : identifier(identifier), op(op), value(std::move(value))
+        {}
+    };
     struct FuncDeclarationStmt : Stmt
     {
         std::string identifier;
@@ -112,11 +139,18 @@
         ReturnStmt(std::unique_ptr<Expr> value) : value(std::move(value))
         {}
     };
+    struct ImportStmt : Stmt
+    {
+        std::string from;
+        ImportStmt(std::string from) : from(from)
+        {}
+    };
     class Parser
     {
         private:
             std::vector<Token> tokens;
             std::string source;
+            std::string fileName;
             unsigned pos;
             Token currentToken() const;
             std::uint8_t currentTokenKind() const;
@@ -129,6 +163,7 @@
             std::unique_ptr<VarDeclarationStmt> parseVarDeclarationStmt();
             std::unique_ptr<FuncDeclarationStmt> parseFuncDeclarationStmt();
             std::unique_ptr<ReturnStmt> parseReturnStmt();
+            std::unique_ptr<ImportStmt> parseImportStmt();
             std::unique_ptr<Expr> parseExpr();
             std::unique_ptr<Expr> parsePrimaryExpr();
             std::unique_ptr<Expr> parseCallExpr();
@@ -138,7 +173,7 @@
             bool isFunctionDeclaration() const;
             Token peek(unsigned n) const;
         public:
-            Parser(std::vector<Token> tokens, std::string source = "");
+            Parser(std::vector<Token> tokens, std::string source = "", std::string fileName = "");
             ~Parser();
             BlockStmt parse();
     };

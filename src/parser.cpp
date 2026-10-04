@@ -9,6 +9,47 @@
  */
 #include "include/parser.h"
 #include "include/error.h"
+std::string sourceLineSnippet(const std::string& source, unsigned line)
+{
+    if (source.empty())
+    {
+        return "";
+    }
+    std::size_t lineStart = 0;
+    unsigned currentLine = 1;
+    for (std::size_t i = 0; i < source.size() && currentLine < line; ++i)
+    {
+        if (source[i] == '\n')
+        {
+            ++currentLine;
+            lineStart = i + 1;
+        }
+    }
+    if (currentLine != line)
+    {
+        return "";
+    }
+    std::size_t lineEnd = source.find('\n', lineStart);
+    if (lineEnd == std::string::npos)
+    {
+        lineEnd = source.size();
+    }
+    return source.substr(lineStart, lineEnd - lineStart);
+}
+template<typename NodeType>
+std::unique_ptr<NodeType> withLocation(std::unique_ptr<NodeType> node, unsigned line, unsigned column, std::string snippet, std::string fileName)
+{
+    node->line = line;
+    node->column = column;
+    node->snippet = std::move(snippet);
+    node->fileName = std::move(fileName);
+    return node;
+}
+template<typename NodeType>
+std::unique_ptr<NodeType> withLocation(std::unique_ptr<NodeType> node, const Token& token, const std::string& source, const std::string& fileName)
+{
+    return withLocation(std::move(node), token.row, token.col, sourceLineSnippet(source, token.row), fileName);
+}
 Token Parser::peek(unsigned n) const
 {
     std::size_t index = this->pos + n;
@@ -71,37 +112,14 @@ Token Parser::expect(std::uint8_t kind)
     const Token tk = this->advance();
     if (tk.kind != kind)
     {
-        error(1, ErrorType::err_unexpected_token, "Unexpected token: " + tk.value, tk.col, tk.row, this->currentLineSnippet());
+        error(1, ErrorType::err_unexpected_token, "Unexpected token: " + tk.value, tk.col, tk.row, this->currentLineSnippet(), this->fileName);
     }
     return tk;
 }
 std::string Parser::currentLineSnippet() const
 {
-    if (this->source.empty())
-    {
-        return "";
-    }
     const Token current = this->currentToken();
-    std::size_t lineStart = 0;
-    unsigned currentRow = 1;
-    for (std::size_t i = 0; i < this->source.size(); ++i)
-    {
-        if (currentRow == current.row)
-        {
-            lineStart = i;
-            break;
-        }
-        if (this->source[i] == '\n')
-        {
-            ++currentRow;
-        }
-    }
-    std::size_t lineEnd = this->source.find('\n', lineStart);
-    if (lineEnd == std::string::npos)
-    {
-        lineEnd = this->source.size();
-    }
-    return this->source.substr(lineStart, lineEnd - lineStart);
+    return sourceLineSnippet(this->source, current.row);
 }
 bool Parser::hasTokens() const
 {
@@ -112,7 +130,6 @@ std::unique_ptr<Expr> Parser::parseExpr()
     return this->parseAdditiveExpr();
 }
 // == Prescidence: ==
-// AssignmentExpr
 // MemberExpr
 // CallExpr
 // ComparisonExpr
@@ -142,10 +159,10 @@ std::unique_ptr<Expr> Parser::parseCallExpr()
     }
     this->advance();
     // TODO: add generics
-    return std::make_unique<CallExpr>(CallExpr{
+    return withLocation(std::make_unique<CallExpr>(CallExpr{
         name,
         std::move(args)
-    });
+    }), tk, this->source, this->fileName);
 }
 std::unique_ptr<Expr> Parser::parseExponentialExpr()
 {
@@ -162,11 +179,14 @@ std::unique_ptr<Expr> Parser::parseExponentialExpr()
         {
             return nullptr;
         }
-        left = std::make_unique<BinaryExpr>(BinaryExpr{
+        const unsigned line = left->line;
+        const unsigned column = left->column;
+        const std::string snippet = left->snippet;
+        left = withLocation(std::make_unique<BinaryExpr>(BinaryExpr{
             std::move(left),
             op,
             std::move(right)
-        });
+        }), line, column, snippet, this->fileName);
     }
     return left;
 }
@@ -185,11 +205,14 @@ std::unique_ptr<Expr> Parser::parseMultiplicativeExpr()
         {
             return nullptr;
         }
-        left = std::make_unique<BinaryExpr>(BinaryExpr{
+        const unsigned line = left->line;
+        const unsigned column = left->column;
+        const std::string snippet = left->snippet;
+        left = withLocation(std::make_unique<BinaryExpr>(BinaryExpr{
             std::move(left),
             op,
             std::move(right)
-        });
+        }), line, column, snippet, this->fileName);
     }
     return left;
 }
@@ -208,17 +231,21 @@ std::unique_ptr<Expr> Parser::parseAdditiveExpr()
         {
             return nullptr;
         }
-        left = std::make_unique<BinaryExpr>(BinaryExpr{
+        const unsigned line = left->line;
+        const unsigned column = left->column;
+        const std::string snippet = left->snippet;
+        left = withLocation(std::make_unique<BinaryExpr>(BinaryExpr{
             std::move(left),
             op,
             std::move(right)
-        });
+        }), line, column, snippet, this->fileName);
     }
     return left;
 }
 std::unique_ptr<Expr> Parser::parsePrimaryExpr()
 {
-    const std::uint8_t tk = this->currentTokenKind();
+    const Token token = this->currentToken();
+    const std::uint8_t tk = token.kind;
     switch (tk)
     {
         case TokenKind::tok_ident:
@@ -226,16 +253,21 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr()
             {
                 return this->parseCallExpr();
             }
-            return std::make_unique<SymbolExpr>(SymbolExpr{this->advance().value});
+            this->advance();
+            return withLocation(std::make_unique<SymbolExpr>(SymbolExpr{token.value}), token, this->source, this->fileName);
         case TokenKind::tok_int:
-            return std::make_unique<IntegerExpr>(IntegerExpr{std::stoi(this->advance().value)});
+            this->advance();
+            return withLocation(std::make_unique<IntegerExpr>(IntegerExpr{std::stoi(token.value)}), token, this->source, this->fileName);
         case TokenKind::tok_float:
-            return std::make_unique<FloatExpr>(FloatExpr{std::stod(this->advance().value)});
+            this->advance();
+            return withLocation(std::make_unique<FloatExpr>(FloatExpr{std::stod(token.value)}), token, this->source, this->fileName);
         case TokenKind::tok_string:
-            return std::make_unique<StringExpr>(StringExpr{this->advance().value});
+            this->advance();
+            return withLocation(std::make_unique<StringExpr>(StringExpr{token.value}), token, this->source, this->fileName);
         case TokenKind::tok_false:
         case TokenKind::tok_true:
-            return std::make_unique<BooleanExpr>(BooleanExpr{this->advance().kind - TokenKind::tok_false == 1});
+            this->advance();
+            return withLocation(std::make_unique<BooleanExpr>(BooleanExpr{token.kind - TokenKind::tok_false == 1}), token, this->source, this->fileName);
         case TokenKind::tok_open_paren:
         {
             this->advance();
@@ -247,7 +279,7 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr()
         {
             const Token current = this->currentToken();
             const std::string snippet = this->currentLineSnippet();
-            error(1, ErrorType::err_unexpected_token, "Unexpected token: " + current.value, current.col, current.row, snippet);
+            error(1, ErrorType::err_unexpected_token, "Unexpected token: " + current.value, current.col, current.row, snippet, this->fileName);
             return nullptr;
         }
     }
@@ -257,19 +289,20 @@ std::unique_ptr<TypeStmt> Parser::parseTypeStmt()
     const Token tk = this->advance();
     if (tk.kind != TokenKind::tok_predefined_type && tk.kind != TokenKind::tok_ident)
     {
-        error(1, ErrorType::err_unexpected_token, "Did not expect token \"" + tk.value + "\" in variable definition!", tk.col, tk.row, currentLineSnippet());
+        error(1, ErrorType::err_unexpected_token, "Did not expect token \"" + tk.value + "\" in variable definition!", tk.col, tk.row, currentLineSnippet(), this->fileName);
     }
     if (this->peek(1).kind == TokenKind::tok_open_paren)
     {
         // TODO: add generics
     }
-    return std::make_unique<TypeStmt>(TypeStmt{
+    return withLocation(std::make_unique<TypeStmt>(TypeStmt{
         tk.value,
         {}
-    });
+    }), tk, this->source, this->fileName);
 }
 std::unique_ptr<VarDeclarationStmt> Parser::parseVarDeclarationStmt()
 {
+    const Token start = this->currentToken();
     const bool isConstant = this->currentTokenKind() == TokenKind::tok_const;
     if (isConstant)
     {
@@ -283,18 +316,19 @@ std::unique_ptr<VarDeclarationStmt> Parser::parseVarDeclarationStmt()
     {
         this->expect(TokenKind::tok_newline);
     }
-    return std::make_unique<VarDeclarationStmt>(VarDeclarationStmt{
+    return withLocation(std::make_unique<VarDeclarationStmt>(VarDeclarationStmt{
         isConstant,
         ident,
         std::move(type),
         std::move(expr)
-    });
+    }), start, this->source, this->fileName);
 }
 std::unique_ptr<FuncDeclarationStmt> Parser::parseFuncDeclarationStmt()
 {
+    const Token start = this->currentToken();
     if (this->currentTokenKind() == TokenKind::tok_const)
     {
-        error(1, ErrorType::err_unexpected_token, "Functions cannot be made constant!", this->currentToken().col, this->currentToken().row, currentLineSnippet());
+        error(1, ErrorType::err_unexpected_token, "Functions cannot be made constant!", this->currentToken().col, this->currentToken().row, currentLineSnippet(), this->fileName);
         this->advance();
     }
     std::unique_ptr<TypeStmt> type = this->parseTypeStmt();
@@ -317,31 +351,32 @@ std::unique_ptr<FuncDeclarationStmt> Parser::parseFuncDeclarationStmt()
     {}
     if (this->currentTokenKind() != TokenKind::tok_newline)
     {
-        return std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
+        return withLocation(std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
             name,
             std::move(type),
             {},
             std::move(args),
-            std::make_unique<BlockStmt>(BlockStmt{
+            withLocation(std::make_unique<BlockStmt>(BlockStmt{
                 {}
-            })
-        });
+            }), start, this->source, this->fileName)
+        }), start, this->source, this->fileName);
     }
     this->advance();
     if (this->currentTokenKind() != TokenKind::tok_indent)
     {
-        return std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
+        return withLocation(std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
             name,
             std::move(type),
             {},
             std::move(args),
-            std::make_unique<BlockStmt>(BlockStmt{
+            withLocation(std::make_unique<BlockStmt>(BlockStmt{
                 {}
-            })
-        });
+            }), start, this->source, this->fileName)
+        }), start, this->source, this->fileName);
     }
+    const Token bodyStart = this->currentToken();
     this->advance();
-    std::unique_ptr<BlockStmt> stmt = std::make_unique<BlockStmt>(BlockStmt{{}});
+    std::unique_ptr<BlockStmt> stmt = withLocation(std::make_unique<BlockStmt>(BlockStmt{{}}), bodyStart, this->source, this->fileName);
     while (this->currentTokenKind() != TokenKind::tok_dedent && this->currentTokenKind() != TokenKind::tok_eof)
     {
         std::unique_ptr<Stmt> statement = this->parseStmt();
@@ -355,25 +390,33 @@ std::unique_ptr<FuncDeclarationStmt> Parser::parseFuncDeclarationStmt()
     {
         this->advance();
     }
-    return std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
+    return withLocation(std::make_unique<FuncDeclarationStmt>(FuncDeclarationStmt{
         name,
         std::move(type),
         {},
         std::move(args),
         std::move(stmt)
-    });
+    }), start, this->source, this->fileName);
 }
 std::unique_ptr<ReturnStmt> Parser::parseReturnStmt()
 {
-    this->advance();
+    const Token start = this->advance();
     std::unique_ptr<Expr> value;
     if (this->currentTokenKind() != TokenKind::tok_newline && this->currentTokenKind() != TokenKind::tok_dedent && this->currentTokenKind() != TokenKind::tok_eof)
     {
         value = this->parseExpr();
     }
-    return std::make_unique<ReturnStmt>(ReturnStmt{
+    return withLocation(std::make_unique<ReturnStmt>(ReturnStmt{
         std::move(value)
-    });
+    }), start, this->source, this->fileName);
+}
+std::unique_ptr<ImportStmt> Parser::parseImportStmt()
+{
+    const Token start = this->advance();
+    const std::string importPath = this->expect(TokenKind::tok_string).value;
+    return withLocation(std::make_unique<ImportStmt>(ImportStmt{
+        importPath.empty() ? "" : importPath.substr(1)
+    }), start, this->source, this->fileName);
 }
 std::unique_ptr<Stmt> Parser::parseStmt()
 {
@@ -396,6 +439,8 @@ std::unique_ptr<Stmt> Parser::parseStmt()
             return this->parseVarDeclarationStmt();
         case TokenKind::tok_return:
             return this->parseReturnStmt();
+        case TokenKind::tok_import:
+            return this->parseImportStmt();
         default:
         {
             std::unique_ptr<Expr> expr = this->parseExpr();
@@ -403,12 +448,18 @@ std::unique_ptr<Stmt> Parser::parseStmt()
             {
                 return nullptr;
             }
-            return std::make_unique<ExpressionStmt>(ExpressionStmt{std::move(expr)});
+            const unsigned line = expr->line;
+            const unsigned column = expr->column;
+            const std::string snippet = expr->snippet;
+            return withLocation(std::make_unique<ExpressionStmt>(ExpressionStmt{
+                std::move(expr)
+            }), line, column, snippet, this->fileName);
         }
     }
 }
 BlockStmt Parser::parse()
 {
+    const Token start = this->currentToken();
     std::vector<std::unique_ptr<Stmt>> body = {};
     while (this->hasTokens())
     {
@@ -419,12 +470,18 @@ BlockStmt Parser::parse()
         }
         body.push_back(std::move(stmt));
     }
-    return BlockStmt{std::move(body)};
+    BlockStmt block{std::move(body)};
+    block.line = start.row;
+    block.column = start.col;
+    block.snippet = sourceLineSnippet(this->source, start.row);
+    block.fileName = this->fileName;
+    return block;
 }
-Parser::Parser(std::vector<Token> tokens, std::string source)
+Parser::Parser(std::vector<Token> tokens, std::string source, std::string fileName)
 {
     this->tokens = std::move(tokens);
     this->source = std::move(source);
+    this->fileName = std::move(fileName);
     this->pos = 0;
 }
 Parser::~Parser()

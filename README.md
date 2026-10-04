@@ -20,7 +20,7 @@ To build and run Obino, ensure you have the following installed:
 Run the bootstrap build script from the project root:
 
 ```sh
-./build
+python build.py
 ```
 *This will automatically generate a release-optimised build and place the executable inside the `dist/` directory.*
 
